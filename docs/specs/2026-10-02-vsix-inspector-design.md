@@ -30,7 +30,7 @@ vsix-inspector/
     extension.ts              — activation, command + webview wiring
     analyzer/
       zip.ts                  — open a vsix (path or Buffer), list entries, read entry contents
-      manifest.ts             — parse extension/package.json + extension.vsixmanifest
+      manifest.ts             — parse extension/package.json
       sizeReport.ts           — total size, top-N largest files, per-top-level-dir totals
       ignoreHeuristics.ts     — flag files a working .vscodeignore usually excludes
       nodeModules.ts          — group any node_modules/ survivors by package, with size + file count
@@ -61,8 +61,7 @@ plain functions over buffers/paths, testable standalone with `node:test`.
      bundled native binaries, fully into memory),
    - reads entry metadata (path, compressed/uncompressed size) for every
      entry,
-   - reads `extension/package.json` (and `extension.vsixmanifest` for
-     publisher/displayName) via `analyzer/manifest.ts`,
+   - reads `extension/package.json` via `analyzer/manifest.ts`,
    - feeds entries + manifest through `sizeReport`, `ignoreHeuristics`,
      `nodeModules`, `licenses`,
    - returns one plain, JSON-serializable `VsixReport`.
