@@ -1,0 +1,9 @@
+.vscode/**
+.gitignore
+docs/**
+src/**
+test/**
+out/**
+esbuild.js
+tsconfig.json
+*.vsix
