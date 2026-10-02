@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { buildZipBuffer, injectRawPath } from '../helpers/buildZip';
 import { openVsix } from '../../src/analyzer/zip';
 
@@ -37,4 +40,24 @@ test('rejects reading a path that does not exist', async () => {
   const archive = await openVsix(buffer);
 
   await assert.rejects(() => archive.readEntry('missing.txt'));
+});
+
+test('reads entries from a path-opened archive (not just a Buffer one)', async () => {
+  const buffer = await buildZipBuffer([
+    { path: 'extension/package.json', content: '{"name":"demo"}' },
+  ]);
+  const tempFilePath = path.join(os.tmpdir(), `vsix-inspector-test-${Date.now()}.vsix`);
+  fs.writeFileSync(tempFilePath, buffer);
+
+  try {
+    const archive = await openVsix(tempFilePath);
+    try {
+      const content = await archive.readEntry('extension/package.json');
+      assert.equal(content.toString('utf8'), '{"name":"demo"}');
+    } finally {
+      archive.close();
+    }
+  } finally {
+    fs.unlinkSync(tempFilePath);
+  }
 });

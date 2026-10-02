@@ -10,6 +10,7 @@ export interface VsixArchive {
   entries: VsixEntry[];
   unsafeEntries: string[];
   readEntry(path: string): Promise<Buffer>;
+  close(): void;
 }
 
 function isSafePath(entryPath: string): boolean {
@@ -80,13 +81,14 @@ export function openVsix(source: string | Buffer): Promise<VsixArchive> {
                 stream.on('error', rejectRead);
               });
             }),
+          close: () => zipfile.close(),
         });
       });
 
       zipfile.on('error', reject);
     };
 
-    const options: yauzl.Options = { lazyEntries: true, decodeStrings: false };
+    const options: yauzl.Options = { lazyEntries: true, decodeStrings: false, autoClose: false };
     if (Buffer.isBuffer(source)) {
       yauzl.fromBuffer(source, options, onZipFile);
     } else {

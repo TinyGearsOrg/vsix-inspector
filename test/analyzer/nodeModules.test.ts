@@ -33,3 +33,22 @@ test('returns an empty list when there is no node_modules directory', () => {
   const entries = [entry('extension/dist/main.js', 100)];
   assert.deepEqual(findUnbundledPackages(entries), []);
 });
+
+test('groups nested node_modules under the deepest package, separate from the outer one', () => {
+  const entries = [
+    entry('extension/node_modules/foo/node_modules/bar/index.js', 30),
+    entry('extension/node_modules/foo/package.json', 15),
+  ];
+
+  const packages = findUnbundledPackages(entries).sort((a, b) => a.name.localeCompare(b.name));
+
+  assert.deepEqual(packages, [
+    {
+      name: 'bar',
+      path: 'extension/node_modules/foo/node_modules/bar',
+      fileCount: 1,
+      size: 30,
+    },
+    { name: 'foo', path: 'extension/node_modules/foo', fileCount: 1, size: 15 },
+  ]);
+});
