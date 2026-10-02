@@ -1435,12 +1435,15 @@ async function pickVsixFile(): Promise<vscode.Uri | undefined> {
 ```
 .vscode/**
 .gitignore
+.superpowers/**
 docs/**
 src/**
 test/**
 out/**
+node_modules/**
 esbuild.js
 tsconfig.json
+package-lock.json
 *.vsix
 ```
 
