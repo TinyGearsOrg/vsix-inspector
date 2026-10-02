@@ -43,7 +43,7 @@
     "@types/vscode": "^1.85.0",
     "@types/yauzl": "^2.10.3",
     "@types/yazl": "^2.4.6",
-    "@vscode/vsce": "^2.26.0",
+    "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.1",
     "typescript": "^5.4.0",
     "yazl": "^2.5.1"
