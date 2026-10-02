@@ -218,6 +218,7 @@ git commit -m "chore: scaffold extension project"
 - Produces: `interface VsixArchive { entries: VsixEntry[]; unsafeEntries: string[]; readEntry(path: string): Promise<Buffer> }`
 - Produces: `function openVsix(source: string | Buffer): Promise<VsixArchive>`
 - Produces (test helper, reused by every later test task): `function buildZipBuffer(files: { path: string; content: string }[]): Promise<Buffer>` in `test/helpers/buildZip.ts`
+- Produces (test helper, reused by Task 8): `function injectRawPath(zipBuffer: Buffer, placeholderPath: string, rawPath: string): Buffer` in `test/helpers/buildZip.ts` — works around `yazl` rejecting `..` paths at write time by swapping in the real (unsafe) path's bytes after the archive is built; `placeholderPath` and `rawPath` must be equal length.
 
 - [ ] **Step 1: Write the test fixture helper**
 
@@ -243,6 +244,26 @@ export function buildZipBuffer(files: FixtureFile[]): Promise<Buffer> {
     zipfile.end();
   });
 }
+
+// yazl's addBuffer() rejects any path containing ".." before it ever reaches
+// the archive, so a path-traversal fixture can't be built through the public
+// API. Build it with a same-length placeholder path instead, then overwrite
+// the raw bytes after the fact — the file name length field doesn't change,
+// so no other offset in the archive shifts.
+export function injectRawPath(zipBuffer: Buffer, placeholderPath: string, rawPath: string): Buffer {
+  if (placeholderPath.length !== rawPath.length) {
+    throw new Error('placeholderPath and rawPath must be the same length');
+  }
+  const result = Buffer.from(zipBuffer);
+  const placeholderBytes = Buffer.from(placeholderPath, 'utf8');
+  const rawBytes = Buffer.from(rawPath, 'utf8');
+  let index = result.indexOf(placeholderBytes);
+  while (index !== -1) {
+    rawBytes.copy(result, index);
+    index = result.indexOf(placeholderBytes, index + placeholderBytes.length);
+  }
+  return result;
+}
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -251,21 +272,25 @@ export function buildZipBuffer(files: FixtureFile[]): Promise<Buffer> {
 // test/analyzer/zip.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildZipBuffer } from '../helpers/buildZip';
+import { buildZipBuffer, injectRawPath } from '../helpers/buildZip';
 import { openVsix } from '../../src/analyzer/zip';
 
+const UNSAFE_PATH = '../evil.txt';
+const UNSAFE_PATH_PLACEHOLDER = 'x'.repeat(UNSAFE_PATH.length); // same byte length, valid as written
+
 test('lists safe entries with sizes and skips unsafe paths', async () => {
-  const buffer = await buildZipBuffer([
+  const rawBuffer = await buildZipBuffer([
     { path: 'extension/package.json', content: '{"name":"demo"}' },
-    { path: '../evil.txt', content: 'escape attempt' },
+    { path: UNSAFE_PATH_PLACEHOLDER, content: 'escape attempt' },
   ]);
+  const buffer = injectRawPath(rawBuffer, UNSAFE_PATH_PLACEHOLDER, UNSAFE_PATH);
 
   const archive = await openVsix(buffer);
 
   assert.equal(archive.entries.length, 1);
   assert.equal(archive.entries[0]?.path, 'extension/package.json');
   assert.equal(archive.entries[0]?.uncompressedSize, Buffer.byteLength('{"name":"demo"}'));
-  assert.deepEqual(archive.unsafeEntries, ['../evil.txt']);
+  assert.deepEqual(archive.unsafeEntries, [UNSAFE_PATH]);
 });
 
 test('reads entry content by path', async () => {
@@ -294,6 +319,14 @@ Expected: FAIL — `Cannot find module '../../src/analyzer/zip'` (tsc compile er
 
 - [ ] **Step 4: Implement `src/analyzer/zip.ts`**
 
+yauzl's default filename validation doesn't just reject a single bad entry —
+on any path-traversal (`..`) filename it emits `error` and aborts the entire
+read, so `end` never fires and nothing after that entry is seen either. That
+contradicts the requirement below (skip just the unsafe entry, keep
+analyzing the rest of the archive), so this implementation opens with
+`decodeStrings: false` to bypass yauzl's built-in validation entirely and
+decodes/validates filenames itself instead.
+
 ```ts
 import * as yauzl from 'yauzl';
 
@@ -316,6 +349,15 @@ function isSafePath(entryPath: string): boolean {
   return !entryPath.split(/[/\\]/).includes('..');
 }
 
+// @types/yauzl types entry.fileName as always `string`, but with
+// decodeStrings:false (required above) yauzl hands back the raw bytes as a
+// Buffer instead - hence the cast. The backslash normalization mirrors what
+// yauzl itself would do with decodeStrings:true and strictFileNames:false.
+function decodeEntryPath(entry: yauzl.Entry): string {
+  const raw = entry.fileName as unknown as Buffer;
+  return raw.toString('utf8').replace(/\\/g, '/');
+}
+
 export function openVsix(source: string | Buffer): Promise<VsixArchive> {
   return new Promise((resolve, reject) => {
     const onZipFile = (err: Error | null | undefined, zipfile?: yauzl.ZipFile) => {
@@ -330,7 +372,7 @@ export function openVsix(source: string | Buffer): Promise<VsixArchive> {
 
       zipfile.readEntry();
       zipfile.on('entry', (entry: yauzl.Entry) => {
-        const entryPath = entry.fileName;
+        const entryPath = decodeEntryPath(entry);
         if (!entryPath.endsWith('/')) {
           if (isSafePath(entryPath)) {
             entries.push({
@@ -374,10 +416,11 @@ export function openVsix(source: string | Buffer): Promise<VsixArchive> {
       zipfile.on('error', reject);
     };
 
+    const options: yauzl.Options = { lazyEntries: true, decodeStrings: false };
     if (Buffer.isBuffer(source)) {
-      yauzl.fromBuffer(source, { lazyEntries: true }, onZipFile);
+      yauzl.fromBuffer(source, options, onZipFile);
     } else {
-      yauzl.open(source, { lazyEntries: true }, onZipFile);
+      yauzl.open(source, options, onZipFile);
     }
   });
 }
@@ -1038,11 +1081,14 @@ git commit -m "feat: collect declared licenses for the extension and its depende
 // test/analyzer/report.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildZipBuffer } from '../helpers/buildZip';
+import { buildZipBuffer, injectRawPath } from '../helpers/buildZip';
 import { buildReport } from '../../src/analyzer/report';
 
+const UNSAFE_PATH = '../evil.txt';
+const UNSAFE_PATH_PLACEHOLDER = 'x'.repeat(UNSAFE_PATH.length); // see test/helpers/buildZip.ts: injectRawPath
+
 test('builds a full report from a representative vsix layout', async () => {
-  const buffer = await buildZipBuffer([
+  const rawBuffer = await buildZipBuffer([
     {
       path: 'extension/package.json',
       content: JSON.stringify({ name: 'my-ext', version: '1.2.3', publisher: 'acme', license: 'MIT' }),
@@ -1060,8 +1106,9 @@ test('builds a full report from a representative vsix layout', async () => {
       path: 'extension/node_modules/left-pad/package.json',
       content: JSON.stringify({ name: 'left-pad' }),
     },
-    { path: '../evil.txt', content: 'escape attempt' },
+    { path: UNSAFE_PATH_PLACEHOLDER, content: 'escape attempt' },
   ]);
+  const buffer = injectRawPath(rawBuffer, UNSAFE_PATH_PLACEHOLDER, UNSAFE_PATH);
 
   const report = await buildReport(buffer);
 
