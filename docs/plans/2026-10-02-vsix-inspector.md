@@ -97,7 +97,7 @@ vsix-inspector/
     "watch": "node esbuild.js --watch",
     "typecheck": "tsc --noEmit",
     "pretest": "tsc -p tsconfig.json",
-    "test": "node --test out/test",
+    "test": "node --test $(find out/test -name '*.test.js')",
     "package": "vsce package"
   },
   "dependencies": {
