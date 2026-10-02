@@ -23,6 +23,17 @@ function rows(cells: string[][]): string {
   return cells.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('\n');
 }
 
+function headerRow(columns: string[]): string {
+  return `<tr>${columns.map((column) => `<th>${column}</th>`).join('')}</tr>`;
+}
+
+function table(columns: string[], cells: string[][], emptyMessage: string): string {
+  if (cells.length === 0) {
+    return `<p>${emptyMessage}</p>`;
+  }
+  return `<table>${headerRow(columns)}\n${rows(cells)}</table>`;
+}
+
 export function renderReport(report: VsixReport): string {
   const missingLicenseCount = report.licenses.filter((license) => !license.license).length;
   const name = escapeHtml(report.manifest.name ?? '(unknown)');
@@ -32,6 +43,7 @@ export function renderReport(report: VsixReport): string {
 <html>
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
 <style>
   body { font-family: var(--vscode-font-family, sans-serif); padding: 1rem; }
   table { border-collapse: collapse; width: 100%; margin-bottom: 1.5rem; }
@@ -45,22 +57,36 @@ export function renderReport(report: VsixReport): string {
      ${report.unbundledPackages.length} unbundled packages, ${missingLicenseCount} missing licenses</p>
 
   <h2>Largest files</h2>
-  <table>${rows(report.largestFiles.map((f) => [escapeHtml(f.path), formatSize(f.size)]))}</table>
+  ${table(
+    ['Path', 'Size'],
+    report.largestFiles.map((f) => [escapeHtml(f.path), formatSize(f.size)]),
+    'None found.',
+  )}
 
   <h2>Possible .vscodeignore misses</h2>
-  <table>${rows(
-    report.ignoreFindings.map((f) => [escapeHtml(f.category), escapeHtml(f.path), formatSize(f.size)]),
-  )}</table>
+  ${table(
+    ['Category', 'Path', 'Size'],
+    report.ignoreFindings.map((f) => [
+      escapeHtml(f.category),
+      escapeHtml(f.path),
+      f.category === 'unsafe-path' ? '—' : formatSize(f.size),
+    ]),
+    'None found.',
+  )}
 
   <h2>Unbundled dependencies</h2>
-  <table>${rows(
+  ${table(
+    ['Package', 'Files', 'Size'],
     report.unbundledPackages.map((p) => [escapeHtml(p.name), String(p.fileCount), formatSize(p.size)]),
-  )}</table>
+    'None found.',
+  )}
 
   <h2>Declared licenses</h2>
-  <table>${rows(
+  ${table(
+    ['Package', 'License'],
     report.licenses.map((l) => [escapeHtml(l.name), escapeHtml(l.license ?? 'MISSING')]),
-  )}</table>
+    'None found.',
+  )}
 </body>
 </html>`;
 }

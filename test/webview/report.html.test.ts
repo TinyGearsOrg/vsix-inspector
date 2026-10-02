@@ -49,3 +49,38 @@ test('renders MISSING for an absent license', () => {
   const html = renderReport(sampleReport({ licenses: [{ name: 'left-pad', license: undefined }] }));
   assert.match(html, /MISSING/);
 });
+
+test('renders a header row for each table', () => {
+  const html = renderReport(
+    sampleReport({
+      ignoreFindings: [{ category: 'extra-markdown', path: 'docs/notes.md', size: 10 }],
+      unbundledPackages: [{ name: 'left-pad', path: 'extension/node_modules/left-pad', fileCount: 1, size: 5 }],
+    }),
+  );
+
+  assert.match(html, /<th>Path<\/th><th>Size<\/th>/);
+  assert.match(html, /<th>Category<\/th><th>Path<\/th><th>Size<\/th>/);
+  assert.match(html, /<th>Package<\/th><th>Files<\/th><th>Size<\/th>/);
+  assert.match(html, /<th>Package<\/th><th>License<\/th>/);
+});
+
+test('renders a fallback message instead of an empty table when a list has no entries', () => {
+  const html = renderReport(
+    sampleReport({ ignoreFindings: [], unbundledPackages: [], largestFiles: [], licenses: [] }),
+  );
+
+  assert.ok(!html.includes('<table></table>'));
+  const noneFoundCount = (html.match(/None found\./g) ?? []).length;
+  assert.equal(noneFoundCount, 4);
+});
+
+test('renders a dash instead of "0 B" for unsafe-path findings', () => {
+  const html = renderReport(
+    sampleReport({
+      ignoreFindings: [{ category: 'unsafe-path', path: '../evil.txt', size: 0 }],
+    }),
+  );
+
+  assert.ok(!html.includes('0 B'));
+  assert.match(html, /unsafe-path<\/td><td>\.\.\/evil\.txt<\/td><td>—<\/td>/);
+});
