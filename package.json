@@ -33,6 +33,7 @@
     "typecheck": "tsc --noEmit",
     "pretest": "tsc -p tsconfig.json",
     "test": "node --test $(find out/test -name '*.test.js')",
+    "prepackage": "npm run build",
     "package": "vsce package"
   },
   "dependencies": {
